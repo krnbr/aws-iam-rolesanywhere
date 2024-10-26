@@ -1,0 +1,18 @@
+[ req ]
+distinguished_name = client_cert
+req_extensions = v3_req
+prompt = no
+[ client_cert ]
+C = IN
+ST = Punjab
+L = Mohali
+O = Test Limited
+OU = Test Engineering
+CN = client_cert
+[ v3_req ]
+basicConstraints        = critical, CA:FALSE
+subjectKeyIdentifier    = hash
+keyUsage                = critical, nonRepudiation, digitalSignature, keyEncipherment
+extendedKeyUsage        = critical, clientAuth
+[ v3_ca ]
+basicConstraints = critical,CA:FALSE

@@ -1,0 +1,17 @@
+[ req ]
+distinguished_name  = req_distinguished_name
+x509_extensions     = ca_ext
+prompt              = no
+
+[ req_distinguished_name ]
+C = IN
+ST = PUNJAB
+L = MOHALI
+O = Test Limited
+OU = Test Engineering
+CN = Roles Anywhere Trust CA
+
+[ ca_ext ]
+basicConstraints        = critical,CA:true
+keyUsage                = critical,keyCertSign
+subjectKeyIdentifier    = hash
