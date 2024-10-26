@@ -4,7 +4,7 @@ This post aligns with the blog post here = https://neuw.medium.com/spring-boot-a
 
 It can cover good number of scenarios, detailed below.
 
-### major steps needed are
+### Prerequisites
 
  - setup an AWS account
  - setup an IAM role
