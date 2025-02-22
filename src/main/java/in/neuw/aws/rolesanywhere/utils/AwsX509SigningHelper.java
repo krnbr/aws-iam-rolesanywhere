@@ -53,6 +53,8 @@ public class AwsX509SigningHelper {
     public static final String CREDENTIALS_DE_LIMITER = ", ";
     public static final String SIGNED_HEADERS_PREFIX = "SignedHeaders=";
     public static final String SIGNATURE_PREFIX = "Signature=";
+    // empty in case of AWS x509 based roles anywhere sessions endpoint
+    public static final String EMPTY_STRING = "";
 
     static {
         dateTimeFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
@@ -73,8 +75,7 @@ public class AwsX509SigningHelper {
 
     public static byte[] hash(final String text) throws NoSuchAlgorithmException {
         MessageDigest digest = MessageDigest.getInstance(SHA_256);
-        byte[] hash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
-        return hash;
+        return digest.digest(text.getBytes(StandardCharsets.UTF_8));
     }
 
     public static String signedHeaders() {
@@ -96,7 +97,7 @@ public class AwsX509SigningHelper {
         StringBuilder canonicalRequestBuilder = new StringBuilder();
         canonicalRequestBuilder.append(method).append(LINE_SEPARATOR)
                 .append(uri).append(LINE_SEPARATOR)
-                .append(emptyCanonicalQueryString()).append(LINE_SEPARATOR);
+                .append(EMPTY_STRING).append(LINE_SEPARATOR);
         if (x509CertificateChain.getIntermediateCACertificate() == null) {
             canonicalHeaders = buildCanonicalHeaders(
                     host,
@@ -128,11 +129,6 @@ public class AwsX509SigningHelper {
 
     public static String hashContent(final String canonicalRequest) throws NoSuchAlgorithmException {
         return BinaryUtils.toHex(hash(canonicalRequest));
-    }
-
-    // empty in case of AWS x509 based roles anywhere sessions endpoint
-    private static String emptyCanonicalQueryString() {
-        return "";
     }
 
     public static Map<String, String> canonicalHeaders(final String host,
