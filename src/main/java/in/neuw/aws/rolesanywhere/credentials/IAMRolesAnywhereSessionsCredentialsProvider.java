@@ -60,7 +60,7 @@ public class IAMRolesAnywhereSessionsCredentialsProvider
     AwsSessionCredentials getUpdatedCredentials() {
         var response = refreshCredentials();
         // reckon, it will be just one credential
-        var credentials = response.getCredentialSet().get(0);
+        var credentials = response.getCredentialSet().getFirst();
         log.info("fetched credentials at epoch seconds = {} with expiry epoch seconds = {}",
                 Instant.now().getEpochSecond(),
                 getInstantFromResponseExpiry(credentials.getCredentials().getExpiration()).getEpochSecond());

@@ -20,7 +20,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.security.spec.InvalidKeySpecException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Map;
@@ -59,10 +58,6 @@ public class AwsX509SigningHelper {
     static {
         dateTimeFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
         dateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
-    }
-
-    public static String getDateAndTime() {
-        return dateTimeFormat.format(new Date());
     }
 
     public static String getDateAndTime(final Date date) {
@@ -194,15 +189,15 @@ public class AwsX509SigningHelper {
         return credentialScope;
     }
 
-    public static String contentToSign(final Region region,
+    public static String contentToSign(final Date date,
+                                       final Region region,
                                        final String algorithm,
                                        final String canonicalRequest) throws IOException, NoSuchAlgorithmException {
         log.debug("canonicalRequest: \n{}", canonicalRequest);
-        String contentToSign = algorithm + '\n' +
-                getDateAndTime() + '\n' +
+        return algorithm + '\n' +
+                getDateAndTime(date) + '\n' +
                 credentialScope(region) + '\n' +
                 hashContent(canonicalRequest);
-        return contentToSign;
     }
 
     public static String sign(final String contentToSign,
@@ -220,13 +215,13 @@ public class AwsX509SigningHelper {
                                              final String algorithm,
                                              final String signedHeaders,
                                              final X509Certificate cert,
-                                             final PrivateKey key) throws InvalidKeySpecException, IOException, NoSuchAlgorithmException, SignatureException, NoSuchProviderException, InvalidKeyException {
+                                             final PrivateKey key) throws NoSuchAlgorithmException, SignatureException, InvalidKeyException {
         var certId = cert.getSerialNumber().toString();
         var credentialPart = certId+"/"+credentialScope(region);
         var signedContent = sign(contentToSign, key);
 
-        StringBuilder builder = new StringBuilder();
-        builder.append(algorithm)
+        var builder = new StringBuilder()
+                .append(algorithm)
                 .append(" ")
                 .append(CREDENTIAL_PREFIX)
                 .append(credentialPart)
@@ -253,7 +248,9 @@ public class AwsX509SigningHelper {
 
             log.debug("request: {}", request);
 
-            var canonicalRequest = canonicalRequest(new Date(),
+            var date = new Date();
+
+            var canonicalRequest = canonicalRequest(date,
                     host,
                     HttpMethod.POST.name(),
                     SESSIONS_URI,
@@ -261,9 +258,9 @@ public class AwsX509SigningHelper {
                     x509CertificateChain);
 
             var signingAlgorithm = resolveAwsAlgorithm(requesterDetails.getPrivateKey());
-            var contentToSign = contentToSign(awsRegion, signingAlgorithm, canonicalRequest);
+            var contentToSign = contentToSign(date, awsRegion, signingAlgorithm, canonicalRequest);
 
-            var requestSpec = resolveRequestBodySpec(sessionsRequest, restClient, requesterDetails, contentToSign, signingAlgorithm);
+            var requestSpec = resolveRequestBodySpec(date, sessionsRequest, restClient, requesterDetails, contentToSign, signingAlgorithm);
 
             return requestSpec.retrieve().body(AwsRolesAnywhereSessionsResponse.class);
 
@@ -273,7 +270,8 @@ public class AwsX509SigningHelper {
     }
 
     @SneakyThrows
-    private static RestClient.RequestBodySpec resolveRequestBodySpec(final AwsRolesAnywhereSessionsRequest sessionsRequest,
+    private static RestClient.RequestBodySpec resolveRequestBodySpec(final Date date,
+                                                                     final AwsRolesAnywhereSessionsRequest sessionsRequest,
                                                                      final RestClient restClient,
                                                                      final AwsRolesAnyWhereRequesterDetails requesterDetails,
                                                                      final String contentToSign,
@@ -282,7 +280,7 @@ public class AwsX509SigningHelper {
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(sessionsRequest)
                 .header(X_AMZ_X509, convertToBase64PEMString(requesterDetails.getCertificateChain().getLeafCertificate()))
-                .header(X_AMZ_DATE, getDateAndTime());
+                .header(X_AMZ_DATE, getDateAndTime(date));
 
         var cert = requesterDetails.getCertificateChain().getLeafCertificate();
         var key = requesterDetails.getPrivateKey();
