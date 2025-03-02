@@ -7,19 +7,22 @@ import in.neuw.aws.rolesanywhere.credentials.models.AwsRolesAnywhereSessionsResp
 import in.neuw.aws.rolesanywhere.credentials.models.X509CertificateChain;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.web.client.RestClient;
+import org.apache.http.entity.ContentType;
+import software.amazon.awssdk.http.*;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.regions.ServiceEndpointKey;
 import software.amazon.awssdk.regions.servicemetadata.RolesanywhereServiceMetadata;
 import software.amazon.awssdk.utils.BinaryUtils;
+import software.amazon.awssdk.utils.IoUtils;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Map;
@@ -64,8 +67,8 @@ public class AwsX509SigningHelper {
         return dateTimeFormat.format(date);
     }
 
-    public static String getDate() {
-        return dateFormat.format(new Date());
+    public static String getDate(final Date date) {
+        return dateFormat.format(date);
     }
 
     public static byte[] hash(final String text) throws NoSuchAlgorithmException {
@@ -96,7 +99,7 @@ public class AwsX509SigningHelper {
         if (x509CertificateChain.getIntermediateCACertificate() == null) {
             canonicalHeaders = buildCanonicalHeaders(
                     host,
-                    MediaType.APPLICATION_JSON_VALUE,
+                    ContentType.APPLICATION_JSON.getMimeType(),
                     dateAndTime,
                     x509CertificateChain.getBase64EncodedCertificate()
             );
@@ -107,7 +110,7 @@ public class AwsX509SigningHelper {
             var chainCerts = convertToBase64PEMString(x509CertificateChain.getIntermediateCACertificate());
             canonicalHeaders = buildCanonicalHeaders(
                     host,
-                    MediaType.APPLICATION_JSON_VALUE,
+                    ContentType.APPLICATION_JSON.getMimeType(),
                     dateAndTime,
                     convertToBase64PEMString(x509CertificateChain.getLeafCertificate()),
                     chainCerts
@@ -183,8 +186,9 @@ public class AwsX509SigningHelper {
         return AWS4_X509_PREFIX + resolveAndValidateAlgorithm(key) + AWS4_X509_SUFFIX;
     }
 
-    public static String credentialScope(final Region region) {
-        String credentialScope = getDate() + "/" + region.id() + "/" + ROLES_ANYWHERE_SERVICE + "/" + AWS4_TERMINATOR;
+    public static String credentialScope(final Date date,
+                                         final Region region) {
+        String credentialScope = getDate(date) + "/" + region.id() + "/" + ROLES_ANYWHERE_SERVICE + "/" + AWS4_TERMINATOR;
         log.debug("credentialScope: {}", credentialScope);
         return credentialScope;
     }
@@ -194,10 +198,11 @@ public class AwsX509SigningHelper {
                                        final String algorithm,
                                        final String canonicalRequest) throws IOException, NoSuchAlgorithmException {
         log.debug("canonicalRequest: \n{}", canonicalRequest);
-        return algorithm + '\n' +
+        String contentToSign = algorithm + '\n' +
                 getDateAndTime(date) + '\n' +
-                credentialScope(region) + '\n' +
+                credentialScope(date, region) + '\n' +
                 hashContent(canonicalRequest);
+        return contentToSign;
     }
 
     public static String sign(final String contentToSign,
@@ -210,18 +215,19 @@ public class AwsX509SigningHelper {
         return BinaryUtils.toHex(signatureBytes);
     }
 
-    public static String awsSignedAuthHeader(final Region region,
+    public static String awsSignedAuthHeader(final Date date,
+                                             final Region region,
                                              final String contentToSign,
                                              final String algorithm,
                                              final String signedHeaders,
                                              final X509Certificate cert,
-                                             final PrivateKey key) throws NoSuchAlgorithmException, SignatureException, InvalidKeyException {
+                                             final PrivateKey key) throws InvalidKeySpecException, IOException, NoSuchAlgorithmException, SignatureException, NoSuchProviderException, InvalidKeyException {
         var certId = cert.getSerialNumber().toString();
-        var credentialPart = certId+"/"+credentialScope(region);
+        var credentialPart = certId+"/"+credentialScope(date, region);
         var signedContent = sign(contentToSign, key);
 
-        var builder = new StringBuilder()
-                .append(algorithm)
+        StringBuilder builder = new StringBuilder();
+        builder.append(algorithm)
                 .append(" ")
                 .append(CREDENTIAL_PREFIX)
                 .append(credentialPart)
@@ -237,7 +243,7 @@ public class AwsX509SigningHelper {
     public static AwsRolesAnywhereSessionsResponse getIamRolesAnywhereSessions(
             final AwsRolesAnywhereSessionsRequest sessionsRequest,
             final AwsRolesAnyWhereRequesterDetails requesterDetails,
-            final RestClient restClient,
+            final SdkHttpClient sdkHttpClient,
             final ObjectMapper om) {
 
         try {
@@ -252,7 +258,7 @@ public class AwsX509SigningHelper {
 
             var canonicalRequest = canonicalRequest(date,
                     host,
-                    HttpMethod.POST.name(),
+                    SdkHttpMethod.POST.name(),
                     SESSIONS_URI,
                     request,
                     x509CertificateChain);
@@ -260,9 +266,25 @@ public class AwsX509SigningHelper {
             var signingAlgorithm = resolveAwsAlgorithm(requesterDetails.getPrivateKey());
             var contentToSign = contentToSign(date, awsRegion, signingAlgorithm, canonicalRequest);
 
-            var requestSpec = resolveRequestBodySpec(date, sessionsRequest, restClient, requesterDetails, contentToSign, signingAlgorithm);
+            var requestSpec = executeHttpRequest(date, sessionsRequest, sdkHttpClient, requesterDetails, contentToSign, signingAlgorithm);
 
-            return requestSpec.retrieve().body(AwsRolesAnywhereSessionsResponse.class);
+            // Print status code
+            log.debug("Status Code is {} for AWS roles anywhere session endpoint", requestSpec.httpResponse().statusCode());
+
+            // Read and print response body
+            if (requestSpec.responseBody().isPresent()) {
+                try (InputStream content = requestSpec.responseBody().get()) {
+                    String responseBody = IoUtils.toUtf8String(content);
+                    log.debug("Response Body from AWS roles anywhere sessions endpoint: {}", responseBody);
+                    return om.readValue(responseBody, AwsRolesAnywhereSessionsResponse.class);
+                } catch (IOException e) {
+                    log.error("Error reading response body for AWS roles anywhere sessions endpoint: {}", e.getMessage());
+                    throw new RuntimeException("Error reading response body for AWS roles anywhere sessions endpoint");
+                }
+            } else {
+                log.error("Error reading response body for AWS roles anywhere sessions endpoint: NO response body");
+                throw new RuntimeException("Error reading response body for AWS roles anywhere sessions endpoint");
+            }
 
         } catch (NoSuchAlgorithmException | IOException | NoSuchProviderException | CertificateException e) {
             throw new RuntimeException(e);
@@ -270,31 +292,46 @@ public class AwsX509SigningHelper {
     }
 
     @SneakyThrows
-    private static RestClient.RequestBodySpec resolveRequestBodySpec(final Date date,
-                                                                     final AwsRolesAnywhereSessionsRequest sessionsRequest,
-                                                                     final RestClient restClient,
-                                                                     final AwsRolesAnyWhereRequesterDetails requesterDetails,
-                                                                     final String contentToSign,
-                                                                     final String signingAlgorithm) {
-        var requestSpec = restClient.post().uri(SESSIONS_URI).body(sessionsRequest)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(sessionsRequest)
-                .header(X_AMZ_X509, convertToBase64PEMString(requesterDetails.getCertificateChain().getLeafCertificate()))
-                .header(X_AMZ_DATE, getDateAndTime(date));
+    private static HttpExecuteResponse executeHttpRequest(final Date date,
+                                                          final AwsRolesAnywhereSessionsRequest sessionsRequest,
+                                                          final SdkHttpClient sdkHttpClient,
+                                                          final AwsRolesAnyWhereRequesterDetails requesterDetails,
+                                                          final String contentToSign,
+                                                          final String signingAlgorithm) {
+
+        String jsonBody = new ObjectMapper().writeValueAsString(sessionsRequest);
+        InputStream requestBodyStream = new ByteArrayInputStream(jsonBody.getBytes(StandardCharsets.UTF_8));
+
+        var awsRegion = requesterDetails.getRegion();
+        var host = resolveHostBasedOnRegion(awsRegion);
+
+        SdkHttpFullRequest.Builder sdkHttpFullRequestBuilder = (SdkHttpFullRequest.Builder) SdkHttpFullRequest.builder()
+                .uri("https://" + host + SESSIONS_URI)
+                .method(SdkHttpMethod.POST)
+                .putHeader(CONTENT_TYPE, ContentType.APPLICATION_JSON.getMimeType())
+                .putHeader(X_AMZ_X509, convertToBase64PEMString(requesterDetails.getCertificateChain().getLeafCertificate()))
+                .putHeader(X_AMZ_DATE, getDateAndTime(date));
 
         var cert = requesterDetails.getCertificateChain().getLeafCertificate();
         var key = requesterDetails.getPrivateKey();
 
         String authHeader;
         if (requesterDetails.getCertificateChain().getIntermediateCACertificate() != null) {
-            authHeader = awsSignedAuthHeader(requesterDetails.getRegion(), contentToSign, signingAlgorithm, signedHeadersWithChain(), cert, key);
-            requestSpec
-                    .header(X_AMZ_X509_CHAIN, convertToBase64PEMString(requesterDetails.getCertificateChain().getIntermediateCACertificate()))
-                    .header(AUTHORIZATION, authHeader);
+            authHeader = awsSignedAuthHeader(date, requesterDetails.getRegion(), contentToSign, signingAlgorithm, signedHeadersWithChain(), cert, key);
+            sdkHttpFullRequestBuilder
+                    .putHeader(X_AMZ_X509_CHAIN, convertToBase64PEMString(requesterDetails.getCertificateChain().getIntermediateCACertificate()))
+                    .putHeader(AUTHORIZATION, authHeader);
         } else {
-            authHeader = awsSignedAuthHeader(requesterDetails.getRegion(), contentToSign, signingAlgorithm, signedHeaders(), cert, key);
-            requestSpec.header(AUTHORIZATION, authHeader);
+            authHeader = awsSignedAuthHeader(date, requesterDetails.getRegion(), contentToSign, signingAlgorithm, signedHeaders(), cert, key);
+            sdkHttpFullRequestBuilder.putHeader(AUTHORIZATION, authHeader);
         }
+
+        HttpExecuteRequest request = HttpExecuteRequest.builder()
+                .request(sdkHttpFullRequestBuilder.build())
+                .contentStreamProvider(() -> requestBodyStream)
+                .build();
+
+        var requestSpec = sdkHttpClient.prepareRequest(request).call();
 
         log.debug("authHeader: {}", authHeader);
         return requestSpec;

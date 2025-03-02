@@ -1,13 +1,13 @@
 package in.neuw.aws.rolesanywhere.credentials;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.web.client.RestClient;
 import software.amazon.awssdk.annotations.NotThreadSafe;
 import software.amazon.awssdk.annotations.SdkPublicApi;
 import software.amazon.awssdk.annotations.ThreadSafe;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.http.SdkHttpClient;
 import software.amazon.awssdk.utils.Logger;
 import software.amazon.awssdk.utils.SdkAutoCloseable;
 import software.amazon.awssdk.utils.ToString;
@@ -34,7 +34,7 @@ public abstract class RolesAnywhereCredentialsProvider implements AwsCredentials
     /**
      * The RestClient that should be used for periodically updating the session credentials.
      */
-    final RestClient restClient;
+    final SdkHttpClient sdkHttpClient;
     final ObjectMapper objectMapper;
 
     /**
@@ -48,7 +48,7 @@ public abstract class RolesAnywhereCredentialsProvider implements AwsCredentials
     private final boolean prefetch;
 
     RolesAnywhereCredentialsProvider(BaseBuilder<?, ?> builder, String asyncThreadName) {
-        this.restClient = Validate.notNull(builder.restClient, "Rest client must not be null.");
+        this.sdkHttpClient = Validate.notNull(builder.sdkHttpClient, "Rest client must not be null.");
         this.objectMapper = Validate.notNull(builder.objectMapper, "Object Mapper must not be null.");
 
         this.staleTime = Optional.ofNullable(builder.staleTime).orElse(DEFAULT_STALE_TIME);
@@ -140,7 +140,7 @@ public abstract class RolesAnywhereCredentialsProvider implements AwsCredentials
         private final Function<B, T> providerConstructor;
 
         private Boolean asyncCredentialUpdateEnabled = false;
-        private RestClient restClient;
+        private SdkHttpClient sdkHttpClient;
         private ObjectMapper objectMapper;
         private Duration staleTime;
         private Duration prefetchTime;
@@ -152,14 +152,14 @@ public abstract class RolesAnywhereCredentialsProvider implements AwsCredentials
         }
 
         /**
-         * Configure the {@link RestClient} to use when calling Roles Anywhere Sessions Endpoint to update the session.
+         * Configure the {@link SdkHttpClient} to use when calling Roles Anywhere Sessions Endpoint to update the session.
          *
-         * @param restClient The Rest client to use for communication with Roles Anywhere Sessions Endpoint.
+         * @param sdkHttpClient The Rest client to use for communication with Roles Anywhere Sessions Endpoint.
          * @return This object for chained calls.
          */
         @SuppressWarnings("unchecked")
-        public B restClient(RestClient restClient) {
-            this.restClient = restClient;
+        public B sdkHttpClient(SdkHttpClient sdkHttpClient) {
+            this.sdkHttpClient = sdkHttpClient;
             return (B) this;
         }
 

@@ -1,19 +1,19 @@
 package in.neuw.aws.rolesanywhere.credentials;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import in.neuw.aws.rolesanywhere.credentials.models.AwsRolesAnywhereSessionsRequest;
-import in.neuw.aws.rolesanywhere.credentials.models.AwsRolesAnywhereSessionsResponse;
 import in.neuw.aws.rolesanywhere.config.props.AwsRolesAnywhereProperties;
 import in.neuw.aws.rolesanywhere.credentials.models.AwsRolesAnyWhereRequesterDetails;
+import in.neuw.aws.rolesanywhere.credentials.models.AwsRolesAnywhereSessionsRequest;
+import in.neuw.aws.rolesanywhere.credentials.models.AwsRolesAnywhereSessionsResponse;
 import in.neuw.aws.rolesanywhere.credentials.models.X509CertificateChain;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
-import org.springframework.web.client.RestClient;
 import software.amazon.awssdk.annotations.NotThreadSafe;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.http.SdkHttpClient;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.utils.builder.ToCopyableBuilder;
 
@@ -78,14 +78,14 @@ public class IAMRolesAnywhereSessionsCredentialsProvider
     }
 
     public AwsRolesAnywhereSessionsResponse refreshCredentials() {
-        return fetchCredentials(awsRolesAnywhereSessionsRequest, requesterDetails, restClient, objectMapper);
+        return fetchCredentials(awsRolesAnywhereSessionsRequest, requesterDetails, sdkHttpClient, objectMapper);
     }
 
     private AwsRolesAnywhereSessionsResponse fetchCredentials(final AwsRolesAnywhereSessionsRequest awsRolesAnywhereSessionsRequest,
                                                               final AwsRolesAnyWhereRequesterDetails requesterDetails,
-                                                              final RestClient restClient,
+                                                              final SdkHttpClient sdkHttpClient,
                                                               final ObjectMapper objectMapper) {
-        return getIamRolesAnywhereSessions(awsRolesAnywhereSessionsRequest, requesterDetails, restClient, objectMapper);
+        return getIamRolesAnywhereSessions(awsRolesAnywhereSessionsRequest, requesterDetails, sdkHttpClient, objectMapper);
     }
 
     @Override
@@ -205,13 +205,9 @@ public class IAMRolesAnywhereSessionsCredentialsProvider
         }
 
         private void initRestClientBasedOnRegion() {
-            var template = new RestTemplateBuilder().build();
-            var interceptors = getClientHttpRequestInterceptors();
-            template.setInterceptors(interceptors);
-            this.restClient(
-                    RestClient.builder(template)
-                            .baseUrl(resolveHostEndpoint(this.awsRegion))
-                            .build()
+            this.sdkHttpClient(
+                    ApacheHttpClient.builder()
+                            .maxConnections(100).build()
             );
         }
 
