@@ -16,7 +16,7 @@
     <properties>
         <java.version>21</java.version>
         <aws.sdk.version>2.30.30</aws.sdk.version>
-        <bouncy.castle.version>1.78.1</bouncy.castle.version>
+        <bouncy.castle.version>1.80</bouncy.castle.version>
     </properties>
     <dependencies>
         <dependency>
