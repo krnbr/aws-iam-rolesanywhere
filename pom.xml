@@ -15,7 +15,7 @@
     <description>aws-roles-anywhere-spring-boot</description>
     <properties>
         <java.version>21</java.version>
-        <aws.sdk.version>2.28.24</aws.sdk.version>
+        <aws.sdk.version>2.30.30</aws.sdk.version>
         <bouncy.castle.version>1.78.1</bouncy.castle.version>
     </properties>
     <dependencies>
